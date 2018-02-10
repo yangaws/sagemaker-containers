@@ -8,6 +8,8 @@ import container_support as cs
 import subprocess
 import shutil
 
+from container_support.retrying import retry
+
 logger = logging.getLogger(__name__)
 
 JSON_CONTENT_TYPE = "application/json"
@@ -21,80 +23,23 @@ class Server(object):
     """A simple web service wrapper for custom inference code.
     """
 
-    def __init__(self, name, transformer):
+    def __init__(self, name, transform_fn, model):
         """ Initialize the web service instance.
 
         :param name: the name of the service
-        :param transformer: a function that transforms incoming request data to
+        :param transform_fn: a function that transforms incoming request data to
                             an outgoing inference response.
+        :param model:
         """
-        self.transformer = transformer
+        self.transform_fn = transform_fn
         self.app = self._build_flask_app(name)
         self.log = self.app.logger
+        self.model = model
 
     @classmethod
-    def from_env(cls):
-        cs.configure_logging()
-        logger.info("creating Server instance")
-        env = cs.HostingEnvironment()
-        logger.info("importing user module")
-        user_module = env.import_user_module() if env.user_script_name else None
-        framework = cs.ContainerEnvironment.load_framework()
-        transformer = framework.transformer(user_module)
-        server = Server("model server", transformer)
-        logger.info("returning initialized server")
-        return server
-
-    @classmethod
-    def start(cls):
-        """Prepare the container for model serving, configure and launch the model server stack.
-        """
-
-        logger.info("reading config")
-        env = cs.HostingEnvironment()
-        env.start_metrics_if_enabled()
-
-        if env.user_script_name:
-            Server._download_user_module(env)
-
-        logger.info('loading framework-specific dependencies')
-        framework = cs.ContainerEnvironment.load_framework()
-        framework.load_dependencies()
-
-        nginx_pid = 0
-        gunicorn_bind_address = '0.0.0.0:8080'
-        if env.use_nginx:
-            logger.info("starting nginx")
-            subprocess.check_call(['ln', '-sf', '/dev/stdout', '/var/log/nginx/access.log'])
-            subprocess.check_call(['ln', '-sf', '/dev/stderr', '/var/log/nginx/error.log'])
-            gunicorn_bind_address = 'unix:/tmp/gunicorn.sock'
-            nginx_pid = subprocess.Popen(['nginx', '-c', '/opt/amazon/etc/nginx.conf']).pid
-
-        logger.info("starting gunicorn")
-        gunicorn_pid = subprocess.Popen(["gunicorn",
-                                         "--timeout", str(env.model_server_timeout),
-                                         "-k", "gevent",
-                                         "-b", gunicorn_bind_address,
-                                         "--worker-connections", str(1000 * env.model_server_workers),
-                                         "-w", str(env.model_server_workers),
-                                         "container_support.wsgi:app"]).pid
-
-        signal.signal(signal.SIGTERM, lambda a, b: Server._sigterm_handler(nginx_pid, gunicorn_pid))
-
-        children = set([nginx_pid, gunicorn_pid]) if nginx_pid else gunicorn_pid
-        logger.info("inference server started. waiting on processes: %s" % children)
-
-        while True:
-            pid, _ = os.wait()
-            if pid in children:
-                break
-
-        Server._sigterm_handler(nginx_pid, gunicorn_pid)
-
-    @classmethod
-    @cs.retry(stop_max_delay=1000 * 60 * 10,
-              wait_exponential_multiplier=100,
-              wait_exponential_max=60000)
+    @retry(stop_max_delay=1000 * 60 * 10,
+           wait_exponential_multiplier=100,
+           wait_exponential_max=60000)
     def _download_user_module(cls, env):
         Server._download_user_module_internal(env)
 
@@ -143,9 +88,9 @@ class Server(object):
         return app
 
     def _invoke(self):
-        """Handles requests by delegating to the transformer function.
+        """Handles requests by delegating to the transform_fn function.
 
-        :return: 200 response, with transformer result in body.
+        :return: 200 response, with transform_fn result in body.
         """
 
         # Accepting both ContentType and Content-Type headers. ContentType because Coral and Content-Type because,
@@ -158,7 +103,7 @@ class Server(object):
 
         try:
             response_data, output_content_type = \
-                self.transformer.transform(content, input_content_type, requested_output_content_type)
+                self.transform_fn(self.model, content, input_content_type, requested_output_content_type)
             # OK
             ret_status = 200
         except Exception as e:

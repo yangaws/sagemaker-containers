@@ -1,3 +1,8 @@
+import inspect
+import traceback
+
+import abc
+
 import container_support as cs
 import importlib
 import json
@@ -15,7 +20,6 @@ class ContainerEnvironment(object):
     """Provides access to common aspects of the container environment, including
     important system characteristics, filesystem locations, and configuration settings.
     """
-
     BASE_DIRECTORY = "/opt/ml"
     USER_SCRIPT_NAME_PARAM = "sagemaker_program"
     USER_SCRIPT_ARCHIVE_PARAM = "sagemaker_submit_directory"
@@ -26,6 +30,7 @@ class ContainerEnvironment(object):
     JOB_NAME_ENV = "JOB_NAME"
     USE_NGINX_ENV = "SAGEMAKER_USE_NGINX"
     SAGEMAKER_REGION_PARAM_NAME = 'sagemaker_region'
+    FRAMEWORK_MODULE_NAME = "CONTAINER_MODULE_NAME"
 
     def __init__(self, base_dir=BASE_DIRECTORY):
         self.base_dir = base_dir
@@ -84,17 +89,7 @@ class ContainerEnvironment(object):
     def start_metrics_if_enabled(self):
         if self.enable_cloudwatch_metrics:
             logger.info("starting metrics service")
-            subprocess.Popen(['telegraf', '--config', '/opt/amazon/etc/telegraf.conf'])
-
-    @staticmethod
-    def load_framework():
-        """Import the deep learning framework needed for the current training job.
-        """
-        # TODO less atrocious implementation -- perhaps set in env or hyperparameters?
-        try:
-            return importlib.import_module('mxnet_container')
-        except ImportError:
-            return importlib.import_module('tf_container')
+            subprocess.Popen(['telegraf', '--config', '/usr/local/etc/telegraf.conf'])
 
     @staticmethod
     def _get_available_cpus():
@@ -176,6 +171,56 @@ class TrainingEnvironment(ContainerEnvironment):
 
         self.sagemaker_region = self.hyperparameters[ContainerEnvironment.SAGEMAKER_REGION_PARAM_NAME]
         os.environ[ContainerEnvironment.SAGEMAKER_REGION_PARAM_NAME.upper()] = self.sagemaker_region
+
+        self.distributed = len(self.hosts) > 1
+
+        self.kwargs_for_training = {
+            'hyperparameters': dict(self.hyperparameters),
+            'input_data_config': dict(self.channels),
+            'channel_input_dirs': dict(self.channel_dirs),
+            'output_data_dir': self.output_data_dir,
+            'model_dir': self.model_dir,
+            'num_gpus': self.available_gpus,
+            'num_cpus': self.available_cpus,
+            'hosts': list(self.hosts),
+            'current_host': self.current_host
+        }
+        """ Returns a dictionary of key-word arguments for input to the user supplied module train function. """
+        self.training_parameters = None
+
+    def load_training_parameters(self, fn):
+        self.training_parameters = self.matching_parameters(fn)
+
+    def matching_parameters(self, fn):
+        train_args = inspect.getargspec(fn)
+        # avoid forcing our callers to specify **kwargs in their function
+        # signature. If they have **kwargs we still pass all the args, but otherwise
+        # we will just pass what they ask for.
+        if train_args.keywords is None:
+            kwargs_to_pass = {}
+            for arg in train_args.args:
+                if arg != "self" and arg in self.kwargs_for_training:
+                    kwargs_to_pass[arg] = self.kwargs_for_training[arg]
+        else:
+            kwargs_to_pass = self.kwargs_for_training
+        return kwargs_to_pass
+
+    def train(self):
+        logger.info("started training: {}".format(repr(self.__dict__)))
+
+        try:
+            self.start_metrics_if_enabled()
+            self.download_user_module()
+            user_module = self.import_user_module()
+            training_parameters = self.load_training_parameters(user_module)
+
+            self.__train__(user_module, training_parameters)
+            self.write_success_file()
+        except Exception as e:
+            trc = traceback.format_exc()
+            message = 'uncaught exception during training: {}\n{}\n'.format(e, trc)
+            TrainingEnvironment.write_failure_file(message, self.base_dir)
+            raise e
 
     def _load_hyperparameters(self, path):
         serialized = self._load_config(path)
@@ -286,3 +331,17 @@ def configure_logging():
 
     if not level or level >= logging.INFO:
         logging.getLogger("boto3").setLevel(logging.WARNING)
+
+
+def import_framework_module():
+    """Import the deep learning framework needed for the current training job.
+    """
+    framework_module_name = os.environ.get(ContainerEnvironment.FRAMEWORK_MODULE_NAME, None)
+    if framework_module_name:
+        return importlib.import_module(framework_module_name)
+
+    # TODO less atrocious implementation -- perhaps set in env or hyperparameters?
+    try:
+        return importlib.import_module('mxnet_container')
+    except ImportError:
+        return importlib.import_module('tf_container')

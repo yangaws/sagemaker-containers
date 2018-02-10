@@ -10,7 +10,6 @@ from mock import patch
 
 from container_support import ContainerEnvironment, TrainingEnvironment, HostingEnvironment
 
-
 INPUT_DATA_CONFIG = {
     "train": {"ContentType": "trainingContentType"},
     "evaluation": {"ContentType": "evalContentType"},
@@ -46,7 +45,6 @@ def hosting():
 
 @pytest.fixture()
 def training():
-
     d = optml(['input/data/training', 'input/config', 'model', 'output/data'])
 
     with open(os.path.join(d, 'input/data/training/data.csv'), 'w') as f:
@@ -126,11 +124,15 @@ def test_container_log_level(hosting):
 
 
 # training tests
+class TestTrainingEnvironment(TrainingEnvironment):
+    def __train__(self, user_module, training_parameters):
+        pass
+
 
 def test_get_channel_dir(training):
     with patch('os.path.exists') as patched:
         patched.return_value = True
-        env = TrainingEnvironment(training)
+        env = TestTrainingEnvironment(training)
         assert env._get_channel_dir("training") == os.path.join(training, "input", "data", "training", "blah/blah")
         assert env._get_channel_dir("validation") == os.path.join(training, "input", "data", "validation", "xxx/yyy")
 
@@ -138,7 +140,7 @@ def test_get_channel_dir(training):
 def test_training_environment_get_env_variables(training):
     with patch('os.path.exists') as patched:
         patched.return_value = True
-        env = TrainingEnvironment(training)
+        env = TestTrainingEnvironment(training)
         assert os.environ[ContainerEnvironment.JOB_NAME_ENV] == "my_job_name"
         assert os.environ[ContainerEnvironment.CURRENT_HOST_ENV] == env.current_host
 
@@ -146,7 +148,7 @@ def test_training_environment_get_env_variables(training):
 def test_get_channel_dir_after_ease_fix(training):
     with patch('os.path.exists') as patched:
         patched.return_value = False
-        env = TrainingEnvironment(training)
+        env = TestTrainingEnvironment(training)
         assert env._get_channel_dir("training") == os.path.join(training, "input", "data", "training")
         assert env._get_channel_dir("validation") == os.path.join(training, "input", "data", "validation")
 
@@ -158,52 +160,52 @@ def test_get_channel_dir_no_s3_uri_in_hp(training):
             "sagemaker_s3_uri_training": "blah/blah",
             "sagemaker_region": "us-west-2"
         }))
-        env = TrainingEnvironment(training)
+        env = TestTrainingEnvironment(training)
         assert env._get_channel_dir("training") == os.path.join(training, "input", "data", "training", "blah/blah")
         assert env._get_channel_dir("validation") == os.path.join(training, "input", "data", "validation")
 
 
 def test_channels(training):
-    env = TrainingEnvironment(training)
+    env = TestTrainingEnvironment(training)
     assert env.channels == INPUT_DATA_CONFIG
 
 
 def test_current_host_unset(training):
     _write_resource_config(training, '', [])
-    env = TrainingEnvironment(training)
+    env = TestTrainingEnvironment(training)
     assert env.current_host == ""
 
 
 def test_current_host(training):
-    env = TrainingEnvironment(training)
+    env = TestTrainingEnvironment(training)
     assert env.current_host == 'algo-1'
 
 
 def test_hosts_unset(training):
     _write_resource_config(training, '', [])
-    env = TrainingEnvironment(training)
+    env = TestTrainingEnvironment(training)
     assert env.hosts == []
 
 
 def test_hosts(training):
     hosts = ['algo-1', 'algo-2', 'algo-3']
     _write_resource_config(training, 'algo-1', hosts)
-    env = TrainingEnvironment(training)
+    env = TestTrainingEnvironment(training)
     assert env.hosts == hosts
 
 
 def test_hosts_single(training):
-    env = TrainingEnvironment(training)
+    env = TestTrainingEnvironment(training)
     assert env.hosts == ['algo-1']
 
 
 def test_user_script_archive_training(training):
-    env = TrainingEnvironment(training)
+    env = TestTrainingEnvironment(training)
     assert env.user_script_archive == "s3://mybucket/code.tar.gz"
 
 
 def test_user_script_name_training(training):
-    env = TrainingEnvironment(training)
+    env = TestTrainingEnvironment(training)
     assert env.user_script_name == "myscript.py"
 
 
@@ -211,7 +213,7 @@ def test_user_script_name_training(training):
 @patch('container_support.download_s3_resource')
 @patch('container_support.untar_directory')
 def test_download_user_module(untar, download_s3, gettemp, training):
-    env = TrainingEnvironment(training)
+    env = TestTrainingEnvironment(training)
     gettemp.return_value = 'tmp'
     env.user_script_archive = 'test.gz'
 
@@ -223,17 +225,31 @@ def test_download_user_module(untar, download_s3, gettemp, training):
 
 @patch('importlib.import_module')
 def test_import_user_module(import_module, training):
-    env = TrainingEnvironment(training)
+    env = TestTrainingEnvironment(training)
     env.import_user_module()
     import_module.assert_called_with('myscript')
 
 
 @patch('importlib.import_module')
 def test_import_user_module_without_py(import_module, training):
-    env = TrainingEnvironment(training)
+    env = TestTrainingEnvironment(training)
     env.user_script_name = 'nopy'
     env.import_user_module()
     import_module.assert_called_with('nopy')
+
+
+def test_env_is_distributed(training):
+    _write_resource_config(training, 'algo-1', ['algo-1', 'algo-2'])
+
+    env = TestTrainingEnvironment(training)
+    assert env.distributed
+
+
+def test_env_is_not_distributed(training):
+    _write_resource_config(training, 'algo-1', ['algo-1'])
+
+    env = TestTrainingEnvironment(training)
+    assert not env.distributed
 
 
 def _write_config_file(training, filename, data):
@@ -249,3 +265,16 @@ def _write_resource_config(path, current_host, hosts):
 def _serialize_hyperparameters(hp):
     return {str(k): json.dumps(v) for (k, v) in hp.items()}
 
+def _setup_training_structure():
+    tmp = tempfile.mkdtemp()
+    for d in ['input/data/training', 'input/config', 'model', 'output/data']:
+        os.makedirs(os.path.join(tmp, d))
+
+    with open(os.path.join(tmp, 'input/data/training/data.csv'), 'w') as f:
+        f.write('dummy data file')
+
+    _write_resource_config(tmp, 'a', ['a', 'b'])
+    _write_config_file(tmp, 'inputdataconfig.json', INPUT_DATA_CONFIG)
+    _write_config_file(tmp, 'hyperparameters.json', _serialize_hyperparameters(HYPERPARAMETERS))
+
+    return tmp

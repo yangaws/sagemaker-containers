@@ -14,7 +14,7 @@ JSON_DATA = json.dumps([1, 2])
 
 @pytest.fixture(scope="module")
 def app():
-    s = Server("test", Transformer())
+    s = Server("test", Transformer(), model)
     s.app.testing = True
     a = s.app.test_client()
     yield a
@@ -43,7 +43,7 @@ def test_app_invoke_error(header):
     def f(*args):
         raise Exception("error")
 
-    error_server = Server("error", Transformer(f))
+    error_server = Server("error", Transformer(f), model)
     error_server.app.testing = True
     error_app = error_server.app.test_client()
 
@@ -70,7 +70,7 @@ def test_invoke_default_container_handlers(header, app):
 @pytest.mark.parametrize("header", ["ContentType", "Content-Type"])
 def test_transform_with_unsupported_content_type(header):
     transformer = Transformer(_unsupported_content_type_transform)
-    new_server = Server("testing_input", transformer)
+    new_server = Server("testing_input", transformer, model)
     new_server.app.testing = True
     new_app = new_server.app.test_client()
 
@@ -83,7 +83,7 @@ def test_transform_with_unsupported_content_type(header):
 @pytest.mark.parametrize("header", ["ContentType", "Content-Type"])
 def test_output_with_unsupported_content_type(header):
     transformer = Transformer(_unsupported_accept_transform)
-    new_server = Server("testing_output", transformer)
+    new_server = Server("testing_output", transformer, model)
     new_server.app.testing = True
     new_app = new_server.app.test_client()
 
@@ -96,7 +96,7 @@ def test_output_with_unsupported_content_type(header):
 
 def test_transform_with_unsupported_input_shape_type():
     transformer = Transformer(_unsupported_input_shape_transform)
-    new_server = Server("testing_input_shape", transformer)
+    new_server = Server("testing_input_shape", transformer, model)
     new_server.app.testing = True
     new_app = new_server.app.test_client()
 

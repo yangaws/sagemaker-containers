@@ -18,7 +18,7 @@ setup(
     packages=find_packages(where='src', exclude=('test',)),
     package_dir={'': 'src'},
     py_modules=[splitext(basename(path))[0] for path in glob('src/*.py')],
-
+    data_files=[('etc', ['etc/nginx.conf', 'etc/telegraf.conf', 'etc/print_gpu_info.py'])],
     long_description=read('README.rst'),
     author='Amazon Web Services',
     url='https://github.com/aws/sagemaker-container-support/',
@@ -37,5 +37,5 @@ setup(
     install_requires=[],
     extras_require={
         'test': ['tox', 'flake8', 'pytest', 'pytest-cov', 'pytest-xdist', 'mock', 'Flask', 'boto3']
-    },
+    }
 )
