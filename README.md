@@ -219,6 +219,63 @@ def main(args):
         os._exit(exit_code)
 ```
 
+### customer_script.py
+```python
+import os
+import keras
+import numpy as np
+
+def train(training_dir, hyperparameters):
+    data = np.load(os.path.join(training_dir, hyperparameters['training_data_file']))
+    x_train, y_train = data['features'], keras.utils.to_categorical(data['labels'])
+
+    model = keras.models.Sequential()
+    model.add(keras.layers.Dense(64, activation='relu', input_dim=20))
+    model.add(keras.layers.Dropout(0.5))
+
+    sgd = keras.optimizers.SGD(lr=0.01, decay=1e-6, momentum=0.9, nesterov=True)
+    model.compile(loss='categorical_crossentropy', optimizer=sgd, metrics=['accuracy'])
+
+    model.fit(x_train, y_train, epochs=20, batch_size=128)
+    return model
+```
+
+### customer_script.py - script mode
+```python
+import argparse
+import os
+
+import sagemaker_containers as smc
+import numpy as np
+import tensorflow as tf
+
+env = smc.Environment.create() 
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--training-data-dir', type=str, default=env.channel_dirs['training'])
+parser.add_argument('--batch-size', type=int, default=env.batch_size.to_int())
+parser.add_argument('--model-dir', type=str, default=env.model_dir)
+parser.add_argument('--lr', type=float, default=env['learning-rate'].to_float())
+
+args = parser.parse_args()
+
+data = np.load(os.path.join(args.training_data_dir, 'training_data.npz'))
+x_train, y_train = data['features'], keras.utils.to_categorical(data['labels'])
+
+model = tf.keras.models.Sequential()
+model.add(tf.keras.layers.Dense(64, activation='relu', input_dim=20))
+model.add(tf.keras.layers.Dropout(0.5))
+
+sgd = tf.keras.optimizers.SGD(lr=0.01, decay=1e-6, momentum=0.9, nesterov=True)
+model.compile(loss='categorical_crossentropy', optimizer=sgd, metrics=['accuracy'])
+
+model.fit(x_train, y_train, epochs=20, batch_size=args.batch_size)
+
+# saves the model in the end of training
+model.save(os.path.join(args.model_dir, 'saved_model.h5'))
+```
+
+
 ## License
 
 This library is licensed under the Apache 2.0 License. 
