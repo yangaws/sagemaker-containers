@@ -34,9 +34,9 @@ def load_input_data_config():
 
 def get_channel_dir(channel):
 
-def get_available_gpus():
+def get_gpu_count():
 
-def get_available_cpus():
+def get_cpu_count():
 
 def create_environment():
     resource_config = load_resource_config()
@@ -46,8 +46,8 @@ def create_environment():
     input_data_config = load_input_data_config()
     channel_dirs = {channel: get_channel_dir(channel) for channel in input_data_config}
 
-    available_cpus = get_available_cpus()
-    available_gpus = get_available_gpus()
+    cpu_count = get_cpu_count()
+    gpu_count = get_gpu_count()
 
     env = TrainerEnvironment(input_dir=INPUT_PATH,
                              input_config_dir=INPUT_CONFIG_PATH,
@@ -57,8 +57,8 @@ def create_environment():
                              current_host=current_host,
                              hosts=hosts,
                              channel_dirs=channel_dirs,
-                             available_gpus=available_gpus,
-                             available_cpus=available_cpus,
+                             gpu_count=gpu_count,
+                             cpu_count=cpu_count,
                              hyperparameters=load_hyperparameters(),
                              resource_config=resource_config,
                              input_data_config=load_input_data_config())
@@ -67,7 +67,7 @@ def create_environment():
 Environment = collections.namedtuple('Environment', [
                           'input_dir', 'input_config_dir', 'model_dir', 'output_dir', 'hyperparameters', 
                           'resource_config', 'input_data_config', 'output_data_dir', 'hosts', 'channel_dirs', 
-                          'current_host', 'available_gpus', 'available_cpus'])):
+                          'current_host', 'gpu_count', 'cpu_count'])):
 ```
 
 #### trainer.py

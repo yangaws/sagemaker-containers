@@ -35,5 +35,5 @@ setup(
     ],
     extras_require={
         'test': ['tox', 'flake8', 'pytest', 'pytest-cov']
-    }
+    }, install_requires=['six', 'boto3']
 )
