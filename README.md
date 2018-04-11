@@ -275,6 +275,20 @@ model.fit(x_train, y_train, epochs=20, batch_size=args.batch_size)
 model.save(os.path.join(args.model_dir, 'saved_model.h5'))
 ```
 
+### for the future - script mode namespacing
+
+```python
+import container_support as smc
+
+# creates PYTorchEnvironment
+env = smc.pytorch.Environment.create()
+
+# tensorflow specific dataset
+dataset = smc.tensorflow.PipeModeDataset()
+
+# invoking chainer special function broadcast_to
+smc.chainer.broadcast_to(x, shape)
+```
 
 ## License
 
