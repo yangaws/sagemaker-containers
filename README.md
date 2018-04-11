@@ -117,10 +117,8 @@ def intersect_fn_parameters(fn, hyperparameters)
 def invoke_fn(fn, dict)
   return fn(intersect_fn_parameters(fn, dict))
 
-def training_from_fn(uri, hyperparameters, module_name=DEFAULT_USER_MODULE_NAME)
-  mod = import_module_from_s3(uri, module_name)
   
-  return invoke_fn(mod.train, hyperparameters)
+
   
 ```
 #### framework-example.py
@@ -129,10 +127,27 @@ def training_from_fn(uri, hyperparameters, module_name=DEFAULT_USER_MODULE_NAME)
 def keras_framework_training_fn():
     env = create_environment()
     
-    model = training_from_fn(env.user_script_name, env.hyperparameters)
-    ...
+    mod = import_module_from_s3(uri, module_name)
+    
+    model = invoke_fn(mod.train, env.hyperparameters)
+        if model:
+        if hasattr(user_module, 'save'):
+            user_module.save(model, env.model_dir)
+        else:
+            model_file = os.path.join(env.model_dir, 'saved_model')
+            model.save(model_file)
+```
+
+### Dockerfile
 
 ```
+ENTRYPOINT ["python", "-m", "sagemaker-containers-package-runner", "keras_container.start"]
+```
+or
+```
+ENTRYPOINT ["sagemaker-containers-package-runner", "keras_container.start"]
+```
+
 ## License
 
 This library is licensed under the Apache 2.0 License. 
