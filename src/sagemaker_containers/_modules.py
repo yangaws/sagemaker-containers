@@ -112,6 +112,9 @@ def install(path):  # type: (str) -> None
     logger.info('Installing module with the following command:\n%s', cmd)
 
     _check_error(shlex.split(cmd), _errors.InstallModuleError, cwd=path)
+    
+    cmd = '%s -m pip freeze' % python_executable()
+    check_call(shlex.split(cmd))
 
 
 def exists(name):  # type: (str) -> bool
@@ -231,6 +234,8 @@ def _check_error(cmd, error_class, **kwargs):
     stdout, stderr = process.communicate()
 
     return_code = process.poll()
+    
+    logger.info(stdout.decode('latin1') if six.PY3 else stdout)
     if return_code:
         raise error_class(return_code=return_code, cmd=' '.join(cmd), output=stderr)
 
